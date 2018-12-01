@@ -58,7 +58,6 @@ min_dist_to_goal_point = None
 #1 idi prema oiu
 #2 prati prepreku
 #3 stop
-#4 ide nazad
 state = 0
 
 #za argumente iz terinala
@@ -179,10 +178,6 @@ def find_ois_coordinates():
     for i in range(len(indices_inf)):
         if ind_goal_ang <= indices_inf[i]and ind_goal_ang >= indices_minf[i]:
             obstacle_goal = True
-            #print "kraj prepreke indeks " + str(indices_inf[i])
-            #print "pocetak prepreke indeks " + str(indices_minf[i])
-            #print (indices_inf[i]*math.degrees(angle_increment))-135
-            #print (indices_minf[i]*math.degrees(angle_increment))-135]
             point1 = point_coordinates(None,indices_inf[i]) #krajnja tacka
             point2 = point_coordinates(None,indices_minf[i])# pocetka tacka
             ###### treba odrediti i sve izmedju tacke 
@@ -196,13 +191,6 @@ def find_ois_coordinates():
                 if dist<min_dist_to_goal:
                     min_dist_to_goal = dist
                     min_dist_to_goal_point = j
-            #print "MINIMUM" + str(min_dist_to_goal)
-            #print "MINIMUM POINT" + str(robot2global_transform(min_dist_to_goal_point))
-            #print "DIST TO GOAL" + str(current_pos.distance(goal))
-
-                    
-            #print " pocetna " + str(point2)
-            #print "krajnja " + str(point1)
             return [point1,point2]
 
     return None
@@ -219,17 +207,6 @@ def choose_oi(ois):
 
     dist1 = current_pos.distance(oi0_global)+goal.distance(oi0_global)
     dist2 = current_pos.distance(oi1_global)+goal.distance(oi1_global)
-    #print dist1
-    #print dist2
-
-    # if math.fabs(dist1-dist2)<0.25:
-    #     if current_pos.distance(robot2global_transform(ois[0]))<current_pos.distance(robot2global_transform(ois[1])):
-    #         left_oi_chosen = True
-    #         return ois[0]
-    #         print "MALA_RAZLIKA"
-    #     else:
-    #         left_oi_chosen = False
-    #         return ois[1]
     if dist1<dist2:
         if dist1 < loc_min:
             loc_min = dist1
@@ -314,7 +291,7 @@ def state_0():
     if math.fabs(angle_of_goal())<eps_angle:
         go_forward()
         return
-    if angle_of_goal()>0: ######################??
+    if angle_of_goal()>0: 
         turn_left()
     else:
         turn_right()
@@ -328,7 +305,6 @@ def state_1():
         state = 0
         return 
     oi = choose_oi(p)
-    #print "Choosen Oi" + str(oi)
     oi_angle = math.atan2(oi.y,oi.x)
     if math.fabs(oi_angle)<eps_angle:
         go_forward()
@@ -386,18 +362,6 @@ def state_3():
     sleep()
 
 
-def min_dist_laser(scan):
-    global angle_increment
-    global ranges
-    min_dist = min(scan)
-    index = scan.index(min_dist)
-    angle = index*angle_increment
-    return [min_dist,angle]
-
-#udaljenost cilja i trenutne pozicije
-def dist():
-    return math.sqrt((current_pos.x-goal.x)**2+(current_pos.y-goal.y)**2)
-
 def publisher():
     pub = rospy.Publisher('/cmd_vel',Twist,queue_size=10)
 
@@ -418,9 +382,7 @@ def publisher():
         pose.pose.position.x = goal.x
         pose.pose.position.y = goal.y
         if state == 0:
-            #print "0000000000000000000000000000000"
             if current_pos.distance(goal)<eps_dist:
-                #print current_pos
                 brojac_traj = brojac_traj+1
                 if brojac_traj == len(traj):
                     state = 3
@@ -439,10 +401,8 @@ def publisher():
                 state = 1
                 state_1()
         elif state == 1:
-            #print "111111111111111111111111111"
             if current_pos.distance(goal)<eps_dist:
                 brojac_traj = brojac_traj+1
-                #print current_pos
                 if brojac_traj == len(traj):
                     state = 3
                     state_3()
@@ -458,10 +418,8 @@ def publisher():
                 state = 1
                 state_1()
         elif state == 2:
-            #print "22222222222222222222222222"
             if current_pos.distance(goal)<eps_dist:
                 brojac_traj = brojac_traj+1
-                #print current_pos
                 if brojac_traj == len(traj):
                     state = 3
                     state_3()
