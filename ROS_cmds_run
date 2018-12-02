@@ -1,0 +1,4 @@
+roscore
+roslaunch ridgeback_gazebo ridgeback_world1.launch
+roslaunch ridgeback_navigation gmapping_demo.launch
+roslaunch ridgeback_viz view_robot.launch config:=gmapping_odom_goal
