@@ -2,70 +2,68 @@
 
 import rospy
 from geometry_msgs.msg import Twist
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 import tf
 import math
 import sys
 import numpy as np
+from Point import Point
 
-class Point:
-    def __init__(self,x=0,y=0):
-        self.x = x
-        self.y = y
-    def point2numpy(self):
-        p = np.matrix([self.x],[self])
-        p[0] = self.x
-        p[1] = self.y
-        return p
-    def __str__(self):
-        return "x " + str(self.x)+ " y "+str(self.y)
-    def distance(self,point):
-        return math.hypot(self.x-point.x,self.y-point.y)
-traj_pom = [Point(10,0),Point(-6,12),Point(2,24),Point(-20,-16),Point(-3,-7),Point(20,-20)]
-traj = traj_pom
+#predefined trajectory 
+traj = [Point(10,0),Point(-6,12),Point(2,24),Point(-20,-16),Point(-3,-7),Point(20,-20)]
 brojac_traj = 0
+
+#for laser readings
 front = "front"
 fleft = "fleft"
 fright = "fright"
 left = "left"
 right = "right"
+
+#current goal from traj
 goal = traj[brojac_traj]
+#current position of robot
 current_pos = Point()
+#current orientation in global coordinate 
 orientation = 0.0
+#variable for cmd_vel
 twist = Twist()
 left_oi_chosen = False
-obstacle_goal = False
-angle_min = 0.0
-angle_max = 0.0
-angle_increment = 0.0
-time_increment = 0.0
-scan_time = 0.0
-range_min = 0.0
-range_max = 0.0
+
+#data from laser
+angle_min = None
+angle_max = None
+angle_increment = None
+time_increment = None
+scan_time = None
+range_min = None
+range_max = None
 ranges = [0]*720
 intensities = []
-loc_min = 20
-eps_angle = math.radians(3) #3 stepena greske dozvoljeno
-eps_dist = 0.1 #10 cm greske dozvoljneo
-eps = 0.1
-pose = PoseStamped()
+
+
+#acceptable error for angle and distance
+eps_angle = math.radians(3) #3 degrees accptable
+eps_dist = 0.1 #10 cm acceptable
+
+#local minimum heuristic distance from goal
 min_dist_to_goal = np.inf
 min_dist_to_goal_point = None
 
-#0 idi prema cilju
-#1 idi prema oiu
-#2 prati prepreku
+#0 go to goal
+#1 go to oi
+#2 follow obstacle 
 #3 stop
 state = 0
 
-#za argumente iz terinala
+#for arguments from terminal for goal point
 def my_node(xarg,yarg):
     global goal
     goal.x = float(xarg)
     goal.y = float(yarg)
 
+#reading current pose of robot
 def odometrija(pose):
     global current_pos
     global orientation
@@ -77,16 +75,18 @@ def odometrija(pose):
     yaw = q_euler[2]
     orientation = yaw
 
-#transform from global to robot coordinate sistem
+#transform global coordinates to local
 def global2robot_transform(point):
     c = np.cos(orientation)
     s = np.sin(orientation)
+    #transformation matrix
     transf_matrix = np.array([[c,s,0,-(c*current_pos.x+s*current_pos.y)],[-s,c,0,s*current_pos.x-c*current_pos.y],[0,0,1,0],[0,0,0,1]])
     np_point = np.array([point.x,point.y,0,1])
     np_point = np_point.transpose()
     tf_point = transf_matrix.dot(np_point)
     return Point(tf_point[0],tf_point[1])
 
+#transform local coordinates to global
 def robot2global_transform(point):
     c = np.cos(orientation)
     s = np.sin(orientation)
@@ -96,6 +96,7 @@ def robot2global_transform(point):
     tf_point = transf_matrix.dot(np_point)
     return Point(tf_point[0],tf_point[1])
 
+#reading laser data
 def skeniranje(scan):
     global angle_min 
     global angle_max
@@ -117,7 +118,7 @@ def skeniranje(scan):
     ranges = scan.ranges
     intensities = scan.intensities
 
-#formatira ugao od -pi do pi
+#formating angle from -pi to pi
 def format_angle(angle):
     while angle < - math.pi:
         angle = angle + 2 * math.pi
@@ -125,20 +126,21 @@ def format_angle(angle):
         angle = angle - 2 * math.pi
     return angle
 
-#ugao cilja u lokalnom koodrinatnom radijani
+#angle of goal in local coordinates
 def angle_of_goal():
     angle = math.atan2(goal.y-current_pos.y,goal.x-current_pos.x)-orientation
     angle = format_angle(angle)
     return angle
 
+#transform angle to index of laser data list
 def degrees_to_index(angle):
     return int(math.floor((angle+135)/math.degrees(angle_increment)))
 
+#transform angle in radians to index of laser data list
 def radians_to_index(angle):
     return int(math.floor((angle+math.radians(135))/angle_increment))
 
-#vraca koordinate tacke koju ocitava senzor na nekom uglu u lokalnom koordinatnom 
-#-135<angle<135stepeni
+#return coordinates of point that laser read at particular angle 
 def point_coordinates(angle,index_par = None):
     if index_par != None:
         index = index_par
@@ -150,17 +152,15 @@ def point_coordinates(angle,index_par = None):
     y = dist * math.sin(angle)
     return Point(x,y)
 
-
-
-#sve dok je rezultat funkcije None, ide prema cilju 
-#kad funkcija vrati neku vrijednost, znaci da ima prepreka 
-#vraca u lokalnom koordinatnom
+#return start and stop point of obstacle 
+#if None no obstacle detected
+#return in local coordinates
 def find_ois_coordinates():
-    global obstacle_goal
     global min_dist_to_goal
     global min_dist_to_goal_point
     goal_angle = angle_of_goal()
-    # vraca none ako nije prepreka na cilju, ili ako jos ne vidi cilj
+
+    #return none if robot cant see goal
     if goal_angle>math.radians(135) or goal_angle<math.radians(-135):
         return None
     ind_goal_ang = radians_to_index(goal_angle)
@@ -170,18 +170,17 @@ def find_ois_coordinates():
     pom_ranges = list(ranges)
     pom_ranges.insert(0,np.inf)
     diff_np_ranges = np.diff(np.array(pom_ranges))
-    indices_inf = list(np.where(diff_np_ranges == np.inf)[0]-1) #krajprepreke #treba -1 ? 
-    indices_minf = list(np.where(diff_np_ranges == -np.inf)[0]) #pocetak prepreke)
+    indices_inf = list(np.where(diff_np_ranges == np.inf)[0]-1) #ends of obstacles 
+    indices_minf = list(np.where(diff_np_ranges == -np.inf)[0]) #beginings of obstacles
     if len(indices_inf)<len(indices_minf):
-        indices_inf.append(719) # ako ne ocitava kraj prepreke, dodati da je kraj na dometu
+        indices_inf.append(719) #end at end of laser readings
 
     for i in range(len(indices_inf)):
         if ind_goal_ang <= indices_inf[i]and ind_goal_ang >= indices_minf[i]:
-            obstacle_goal = True
-            point1 = point_coordinates(None,indices_inf[i]) #krajnja tacka
-            point2 = point_coordinates(None,indices_minf[i])# pocetka tacka
-            ###### treba odrediti i sve izmedju tacke 
+            point1 = point_coordinates(None,indices_inf[i]) #end point
+            point2 = point_coordinates(None,indices_minf[i])#start point
 
+            #for setting local minimum of heuristic distance
             point_between = []
             for j in range(indices_minf[i],indices_inf[i]):
                 point_between.append(point_coordinates(None,j))
@@ -195,12 +194,10 @@ def find_ois_coordinates():
 
     return None
 
-#racuna udaljenost oia od cilja i vraca onaj sa manjom
-#ois su u robotskom koordinatnom sistemu
-#vraca u lokalnom koordinatnom
+#return oi with smaller heuristic distance
+#in local coordinates
 def choose_oi(ois):
     global left_oi_chosen
-    global loc_min
 
     oi0_global = robot2global_transform(ois[0])
     oi1_global = robot2global_transform(ois[1])
@@ -208,8 +205,6 @@ def choose_oi(ois):
     dist1 = current_pos.distance(oi0_global)+goal.distance(oi0_global)
     dist2 = current_pos.distance(oi1_global)+goal.distance(oi1_global)
     if dist1<dist2:
-        if dist1 < loc_min:
-            loc_min = dist1
         left_oi_chosen = True
         return ois[0]
     elif math.fabs(dist1-dist2)<0.001:
@@ -218,19 +213,11 @@ def choose_oi(ois):
         else:
             left_oi_chosen = False
             return ois[1]
-            
     else:
-        if dist2 < loc_min:
-            loc_min = dist2
         left_oi_chosen = False
         return ois[1]
     
-#vraca min udaljenost za region u kojem je ugao
-def min_dist_angle_region(angle):
-    for i in range(14):
-        if angle < range_min+(i+1)*18*math.pi/180:
-            return min(ranges[i*48:i*48+47])
-
+#return min dist of laser region - 5 regions
 def min_ranges(direction):
     if direction == front:
         return min(min(ranges[288:431]), 10)
@@ -243,15 +230,7 @@ def min_ranges(direction):
     if direction == left:
         return min(min(ranges[576:719]), 10)
 
-        
-#vraca min udaljenost za konkretan region
-#ako prima listu, vraca minimalni o region[0] do region[1]
-def min_dist_region(region):
-    if type(region)==list:
-            return min(ranges[region[0]*48:region[1]*48+47])
-    return min(ranges[region*48:region*48+47])
-
-
+#set cmd_vel variable 
 def sleep():
     global twist
     twist.linear.x = 0
@@ -276,16 +255,18 @@ def go_back():
     global twist
     twist.linear.x = -1
     twist.angular.z = 0
+
 def go_fleft():
     global twist
     twist.linear.x = 0.3
     twist.angular.z = 0.3
+
 def go_fright():
     global twist
     twist.linear.x = 0.3
     twist.angular.z = -0.3
 
-#idi prema cilju
+#go to goal
 def state_0():
     print "Heading toward target"
     if math.fabs(angle_of_goal())<eps_angle:
@@ -296,7 +277,7 @@ def state_0():
     else:
         turn_right()
 
-# idi prema Oi
+#go to oi
 def state_1():
     global state
     print "Heading toward Oi"
@@ -314,7 +295,7 @@ def state_1():
         go_fright()
     return
 
-#prati prepreku
+#follow obstacle
 def state_2():
     global state
     d = 1.5
@@ -355,13 +336,12 @@ def state_2():
     elif min_ranges(front)>d and min_ranges(fleft)<d and min_ranges(fright)<d:
         go_forward()
  
-
-#stani
+ #stop
 def state_3():
     print "I am done."
     sleep()
 
-
+#publisher function
 def publisher():
     pub = rospy.Publisher('/cmd_vel',Twist,queue_size=10)
 
@@ -371,16 +351,12 @@ def publisher():
     global current_pos
     global orientation
     global ranges
-    global eps
     global goal
     global state
     global twist
     global brojac_traj
-    global pose
 
     while not rospy.is_shutdown():
-        pose.pose.position.x = goal.x
-        pose.pose.position.y = goal.y
         if state == 0:
             if current_pos.distance(goal)<eps_dist:
                 brojac_traj = brojac_traj+1
